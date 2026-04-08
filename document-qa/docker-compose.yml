@@ -1,0 +1,34 @@
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports:
+      - "5051:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    restart: unless-stopped
+
+  app:
+    build: .
+    ports:
+      - "5050:5050"
+    env_file: .env
+    depends_on:
+      - qdrant
+    volumes:
+      - ./data:/app/data
+      - ./src:/app/src
+      - ./app.py:/app/app.py
+      - ./run_evaluation.py:/app/run_evaluation.py
+      - model_cache:/root/.cache
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+volumes:
+  qdrant_data:
+  model_cache:
