@@ -67,6 +67,9 @@
 - EasyOCR modelleri Dockerfile build aşamasına taşındı
 - Docker build optimizasyonu (pip cache mount)
 - Çoklu bug fix'ler (aşağıda detaylı)
+- Kaynak kod volume mount eklendi — kod değişikliklerinde rebuild gerekmez
+- RAGAS evaluation iki aşamalı yapıya dönüştürüldü (bellek optimizasyonu)
+- RAGAS timeout ve batch_size ayarları yapıldı (lokal model uyumu)
 
 ### Aldığım Kararlar
 
@@ -109,6 +112,10 @@
 - LangSmith `@traceable` decorator'ı OpenAI client çağrılarını da otomatik izliyor — LangChain'e geçiş gerektirmiyor
 - Prompt injection kalıpları dil bağımlı — Türkçe ve İngilizce ayrı pattern'ler gerekiyor
 - Indirect injection belgelerden gelebilir — delimiter sanitization (örn. `<system>` → `[system]`) LLM'in bunları talimat olarak yorumlamasını engelliyor
+- RAGAS lokal model ile çalıştırırken paralel job'lar timeout yaratıyor — `batch_size=1` şart
+- Docker volume mount ile kaynak kod değişiklikleri anında yansıyor — geliştirme döngüsü hızlanıyor
+- Regex güvenlik pattern'lerinde `\b` word boundary kritik — Türkçe ekler (dan, run, eval) false positive yaratıyor
+- İki aşamalı evaluation (RAG → bellek temizle → RAGAS) 16GB RAM'de bile gerekli olabiliyor
 
 ---
 
@@ -188,3 +195,13 @@
 - **Hata:** `model requires more system memory (4.3 GiB) than is available (2.2 GiB)`
 - **Sebep:** Docker container'da BGE-M3 (~2GB) + Reranker (~1.5GB) yüklüyken host'taki Ollama için yeterli sistem RAM'i kalmıyordu (16GB toplam, Docker overhead + modeller = ~14GB kullanımda)
 - **Çözüm:** `run_evaluation.py` iki aşamaya bölündü: Aşama 1'de RAG cevapları üretilip modeller `del` + `torch.cuda.empty_cache()` ile bellekten atılıyor, Aşama 2'de GPU boşken RAGAS değerlendirmesi (Ollama LLM ile) çalışıyor
+
+### BF-16: RAGAS evaluation'da TimeoutError — Ollama paralel isteklerde boğuluyordu
+- **Hata:** `Exception raised in Job[12]: TimeoutError()` — 60 job'un çoğu timeout oluyordu
+- **Sebep:** RAGAS varsayılan olarak tüm job'ları paralel çalıştırıyor. 15 örnek × 4 metrik = 60 eşzamanlı LLM çağrısı. Lokal 7B model bu kadar paralel isteği karşılayamıyor + varsayılan timeout kısa
+- **Çözüm:** Üç düzeltme: (1) `ChatOllama(timeout=300)` ile timeout 5 dakikaya çıkarıldı, (2) `evaluate(batch_size=1)` ile job'lar seri çalışıyor — Ollama'yı boğmuyor, (3) `raise_exceptions=False` ile timeout olan job NaN döner, script crash olmaz
+
+### BF-17: Kod değişiklikleri container'a yansımıyordu — her seferinde rebuild gerekiyordu
+- **Hata:** Dosyalar düzeltiliyordu ama container eski kodu çalıştırmaya devam ediyordu
+- **Sebep:** Kaynak kod Dockerfile'da `COPY . .` ile image'a kopyalanıyordu, volume mount yoktu. Her değişiklikte `docker compose up --build` gerekiyordu
+- **Çözüm:** `docker-compose.yml`'e kaynak kod volume mount'ları eklendi: `./src:/app/src`, `./app.py:/app/app.py`, `./run_evaluation.py:/app/run_evaluation.py`. Artık kod değişiklikleri anında yansıyor, rebuild gerektirmiyor
