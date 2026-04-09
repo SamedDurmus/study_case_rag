@@ -10,6 +10,7 @@ Scanned sayfa tespiti yapılır, OCR smart_loader tarafından EasyOCR ile uygula
 """
 
 import logging
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -46,8 +47,17 @@ def _clean_text_length(text: str) -> int:
 
     Scanned sayfa tespitinde Markdown işaretleri (#, *, -, |, ---)
     yanlış pozitif yaratmaması için temizlenmiş uzunluk hesaplanır.
+
+    pymupdf4llm resim placeholder'ları da çıkarılır:
+    '**==> picture [WxH] intentionally omitted <==**'
+    Bu pattern kaldırılmazsa büyük boyutlu resimlerde (ör. 1920x1080)
+    placeholder text'i threshold'u aşabilir ve sayfa scanned olarak
+    algılanmaz.
     """
-    clean = text.replace("#", "").replace("*", "").replace("-", "").replace("|", "")
+    # pymupdf4llm image placeholder'larını kaldır
+    clean = re.sub(r"\*{0,2}==>.*?intentionally omitted.*?<==\*{0,2}", "", text)
+    # Markdown formatting karakterlerini kaldır
+    clean = clean.replace("#", "").replace("*", "").replace("-", "").replace("|", "")
     return len(clean.strip())
 
 
@@ -89,7 +99,7 @@ def extract_text_from_pdf(file_path: str | Path) -> PDFResult:
     for i, page_data in enumerate(pages):
         text = page_data.get("text", "")
         meta = page_data.get("metadata", {})
-        page_num = meta.get("page", i + 1)
+        page_num = meta.get("page_number", i + 1)
         is_scanned = _clean_text_length(text) < SCANNED_PAGE_THRESHOLD
 
         page_content = PageContent(
@@ -115,6 +125,12 @@ def extract_text_from_pdf(file_path: str | Path) -> PDFResult:
 def extract_page_as_image(file_path: str | Path, page_number: int) -> bytes:
     """PDF sayfasını PNG image olarak döndürür (OCR için).
 
+    Önce sayfadaki gömülü resimleri doğrudan çıkarmayı dener.
+    Doğrudan çıkarma, render'dan daha iyi OCR sonucu verir çünkü
+    orijinal piksel verisi korunur (çift interpolasyon önlenir).
+
+    Gömülü resim bulunamazsa sayfayı 300 DPI'da render eder.
+
     Args:
         file_path: PDF dosyasının yolu.
         page_number: 1-indexed sayfa numarası.
@@ -124,6 +140,38 @@ def extract_page_as_image(file_path: str | Path, page_number: int) -> bytes:
     """
     doc = pymupdf.open(str(file_path))
     page = doc[page_number - 1]
+
+    # Önce gömülü resimleri doğrudan çıkarmayı dene
+    images = page.get_images(full=True)
+    if images:
+        # En büyük resmi seç (sayfa içeriği olma olasılığı en yüksek)
+        largest = max(images, key=lambda img: img[2] * img[3])
+        xref = largest[0]
+        try:
+            base_image = doc.extract_image(xref)
+            image_bytes = base_image["image"]
+            ext = base_image["ext"]
+            logger.debug(
+                "Gömülü resim çıkarıldı: sayfa %d, %dx%d, format: %s",
+                page_number, largest[2], largest[3], ext,
+            )
+            doc.close()
+            # PNG/JPG değilse PNG'ye çevir
+            if ext not in ("png", "jpeg", "jpg"):
+                from PIL import Image
+                import io
+                img = Image.open(io.BytesIO(image_bytes))
+                buf = io.BytesIO()
+                img.save(buf, format="PNG")
+                return buf.getvalue()
+            return image_bytes
+        except Exception:
+            logger.debug(
+                "Gömülü resim çıkarılamadı, sayfa render edilecek: sayfa %d",
+                page_number,
+            )
+
+    # Fallback: sayfayı render et
     pixmap = page.get_pixmap(dpi=300)
     image_bytes = pixmap.tobytes("png")
     doc.close()

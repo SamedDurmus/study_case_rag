@@ -1,0 +1,27 @@
+[
+  {
+    "soru": "Bir kaleci ceza alanı içinde topu eliyle veya koluyla sekiz saniyeden uzun süre kontrol ederse ne kararı verilir?",
+    "dogru_cevap": "Bir kaleci kendi ceza alanı içinde topu eli/kolu ile sekiz saniyeden uzun süre kontrol ederse köşe vuruşu verilir [1].",
+    "kaynak": "futbol_kural_2.png"
+  },
+  {
+    "soru": "Tehlikeli şekilde oynamak kuralına göre makas veya bisiklet vuruşu yapılması kurallara aykırı mıdır?",
+    "dogru_cevap": "Tehlikeli olmamak şartıyla makas veya bisiklet vuruşuna izin verilir [1].",
+    "kaynak": "futbol_kural_2.png"
+  },
+  {
+    "soru": "Hakemin disiplin cezası verme yetkisi hangi zaman aralığında geçerlidir?",
+    "dogru_cevap": "Hakem, maç öncesi inceleme yapmak için oyun alanına girdiği andan, maç bitiminden sonra (penaltı vuruşları dahil) oyun alanını terk edinceye kadar disiplin cezası verme yetkisine sahiptir [1].",
+    "kaynak": "futbol_kural_2.png"
+  },
+  {
+    "soru": "Bir oyuncu herhangi bir temas olmadan rakibinin ilerlemesini engellerse hangi vuruş kararı verilir?",
+    "dogru_cevap": "Herhangi bir temasta bulunmadan rakibin ilerlemesine engel olan bir oyuncu için endirekt serbest vuruş kararı verilir [1].",
+    "kaynak": "futbol_kural_2.png"
+  },
+  {
+    "soru": "Kalecinin topu kontrol ettiği durumlarda rakip oyuncuların müdahale hakkı var mıdır?",
+    "dogru_cevap": "Bir kaleci eli veya kolu ile topa sahip olduğunda, rakip bir oyuncu kendisiyle mücadele edemez [1].",
+    "kaynak": "futbol_kural_2.png"
+  }
+]

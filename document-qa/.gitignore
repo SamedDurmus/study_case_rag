@@ -8,7 +8,5 @@ dist/
 build/
 .venv/
 venv/
-data/test_documents/*
-!data/test_documents/.gitkeep
 *.log
 .DS_Store

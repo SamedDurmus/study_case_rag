@@ -1,0 +1,27 @@
+[
+  {
+    "soru": "Basketbol oyununda bir maç kaç çeyrekten ve her bir çeyrek kaç dakikadan oluşur?",
+    "dogru_cevap": "Oyun, her biri 10 dakikalık 4 çeyrekten oluşacaktır [1].",
+    "kaynak": "basket_kurallar.pdf"
+  },
+  {
+    "soru": "Dördüncü çeyrek sonunda maçın skoru eşitse süreç nasıl işler?",
+    "dogru_cevap": "Dördüncü çeyrek sonunda skor eşitse oyun, eşitlik bozulana kadar her biri 5 dakika süren uzatmalarla devam edecektir [1].",
+    "kaynak": "basket_kurallar.pdf"
+  },
+  {
+    "soru": "Basketbol maçlarında birinci ile ikinci çeyrek arasında ve her uzatmadan önce kaç dakikalık bir oyun arası verilir?",
+    "dogru_cevap": "Birinci ile ikinci çeyrek arasında (birinci devre), üçüncü ile dördüncü çeyrek arasında (ikinci devre) ve her uzatmadan önce 2 dakikalık oyun arası olacaktır [1].",
+    "kaynak": "basket_kurallar.pdf"
+  },
+  {
+    "soru": "Birinci çeyrek haricindeki diğer tüm çeyrekler ve uzatmalar tam olarak ne zaman başlar?",
+    "dogru_cevap": "Diğer tüm çeyrekler ya da uzatmalarda oyun, top, topu oyuna sokacak oyuncunun kullanımında olduğunda başlar [1].",
+    "kaynak": "basket_kurallar.pdf"
+  },
+  {
+    "soru": "Bir çeyreğin veya uzatmanın sonuna doğru bir faul yapılırsa kalan süreyi kim belirler ve oyun saatinde minimum ne kadar süre gösterilir?",
+    "dogru_cevap": "Kalan oyun süresini hakem belirleyecektir ve oyun saatinde minimum 0.1 saniye gösterilecektir [1].",
+    "kaynak": "basket_kurallar.pdf"
+  }
+]

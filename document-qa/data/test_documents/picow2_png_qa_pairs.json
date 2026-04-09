@@ -1,0 +1,113 @@
+[
+  {
+    "soru": "What is the main microcontroller chip used in the Raspberry Pi Pico 2 W?",
+    "dogru_cevap": "The Raspberry Pi Pico 2 W is based on the Raspberry Pi RP2350 microcontroller chip [1].",
+    "kaynak": "picow2_firstpage.png"
+  },
+  {
+    "soru": "What types of wireless interfaces are available on the board?",
+    "dogru_cevap": "The board features on-board single-band 2.4GHz wireless interfaces supporting 802.11n and Bluetooth 5.2 [1].",
+    "kaynak": "picow2_firstpage.png"
+  },
+  {
+    "soru": "How much flash memory does the Raspberry Pi Pico 2 W have?",
+    "dogru_cevap": "It is equipped with 4 MB of flash memory [1].",
+    "kaynak": "picow2_firstpage.png"
+  },
+  {
+    "soru": "What is the clock speed and core architecture of the RP2350 microcontroller?",
+    "dogru_cevap": "The RP2350 microcontroller features Dual Cortex-M33 or RISC-V Hazard3 cores that are clocked at up to 150MHz [1].",
+    "kaynak": "picow2_firstpage.png"
+  },
+  {
+    "soru": "How many ADC capable pins are exposed on the board?",
+    "dogru_cevap": "Out of the 26 exposed multi-function GPIO pins, three are ADC capable, while the other 23 are digital-only [1].",
+    "kaynak": "picow2_firstpage.png"
+  }
+]
+
+
+
+
+
+
+
+
+**********************
+[
+  {
+    "soru": "Raspberry Pi Pico 2 W hangi mikrodenetleyici çipini temel almaktadır?",
+    "dogru_cevap": "Raspberry Pi RP2350 mikrodenetleyici çipini temel almaktadır [1].",
+    "kaynak": "picow2_firstpage.png"
+  },
+  {
+    "soru": "Cihazın kablosuz arayüzü hangi Bluetooth versiyonunu desteklemektedir?",
+    "dogru_cevap": "Cihaz üzerinde bulunan kablosuz arayüz, Bluetooth 5.2 versiyonunu desteklemektedir [1].",
+    "kaynak": "picow2_firstpage.png"
+  },
+  {
+    "soru": "Raspberry Pi Pico 2 W'nin flash bellek kapasitesi ne kadardır?",
+    "dogru_cevap": "Cihaz, 4 MB flash bellek kapasitesine sahiptir [1].",
+    "kaynak": "picow2_firstpage.png"
+  },
+  {
+    "soru": "Kart üzerinde güç ve veri iletişimi sağlamak amacıyla hangi bağlantı noktası yer almaktadır?",
+    "dogru_cevap": "Güç ve veri aktarımı (aynı zamanda flashı yeniden programlamak) için Micro USB B portu bulunmaktadır [1].",
+    "kaynak": "picow2_firstpage.png"
+  },
+  {
+    "soru": "RP2350 çipinin SRAM kapasitesi nedir?",
+    "dogru_cevap": "RP2350 mikrodenetleyicisi, 520 kB kapasiteli çok bankalı yüksek performanslı SRAM içermektedir [1].",
+    "kaynak": "picow2_firstpage.png"
+  },
+  {
+    "soru": "How many multi-function GPIO pins does the Raspberry Pi Pico 2 W expose?",
+    "dogru_cevap": "It exposes 26 multi-function 3.3V general purpose I/O (GPIO) pins [1].",
+    "kaynak": "picow2_firstpage.png"
+  },
+  {
+    "soru": "Out of all exposed GPIO pins, how many are capable of Analog-to-Digital Conversion (ADC)?",
+    "dogru_cevap": "Three of the GPIO pins are ADC capable, while the other 23 are digital-only [1].",
+    "kaynak": "picow2_firstpage.png"
+  },
+  {
+    "soru": "What type of debug port is available on the Raspberry Pi Pico 2 W board?",
+    "dogru_cevap": "The board features a 3-pin Arm serial wire debug (SWD) port [1].",
+    "kaynak": "picow2_firstpage.png"
+  },
+  {
+    "soru": "What are the options for powering the Raspberry Pi Pico 2 W?",
+    "dogru_cevap": "The unit has a highly flexible power supply architecture and can be easily powered from a micro USB, external supplies, or batteries [1].",
+    "kaynak": "picow2_firstpage.png"
+  },
+  {
+    "soru": "What is the maximum clock speed and core architecture of the RP2350 microcontroller?",
+    "dogru_cevap": "It features Dual Cortex-M33 or RISC-V Hazard3 cores clocked at up to 150MHz [1].",
+    "kaynak": "picow2_firstpage.png"
+  },
+  {
+    "soru": "How can the on-board QSPI flash of the Pico 2 W be reprogrammed?",
+    "dogru_cevap": "The on-board QSPI flash can be reprogrammed either using the serial wire debug (SWD) port or by using the special USB mass storage device mode [1].",
+    "kaynak": "picow2_secondpage.png"
+  },
+  {
+    "soru": "What is the simplest method to reprogram the Pico 2 W's flash using USB mode?",
+    "dogru_cevap": "The simplest way is to power-down the board, then hold the BOOTSEL button down during board power-up. This makes the board appear as a USB mass storage device, and you can drag a '.uf2' file onto the disk to write the file [1].",
+    "kaynak": "picow2_secondpage.png"
+  },
+  {
+    "soru": "Which specific GPIO pins on the Pico 2 W can be used as either digital GPIO or ADC inputs?",
+    "dogru_cevap": "GPIO pins 26-28 can be used as either digital GPIO or as ADC inputs, which is software selectable [1].",
+    "kaynak": "picow2_secondpage.png"
+  },
+  {
+    "soru": "What is the input voltage restriction for the ADC-capable pins (GPIO 26-29) and why?",
+    "dogru_cevap": "The input voltage must not exceed VDDIO (3.3V) plus about 300mV because these pins have an internal reverse diode to the VDDIO rail [1].",
+    "kaynak": "picow2_secondpage.png"
+  },
+  {
+    "soru": "What does the RP2350 ADC use for its reference voltage?",
+    "dogru_cevap": "The RP2350 ADC does not have an on-chip reference; it uses its own power supply as a reference [1].",
+    "kaynak": "picow2_secondpage.png"
+  }
+]

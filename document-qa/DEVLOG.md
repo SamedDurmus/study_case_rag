@@ -419,3 +419,19 @@ Test edilen sorular ve sonuçları (`picow2_png_qa_pairs.json` referans alınara
 **Kök sebep zinciri:** Düşük çözünürlüklü resim (674px) → OCR garbled metin → embedder garbled metni vektöre çevirir → araştırma doğru chunk'ı bulamaz VEYA yanlış chunk'ı getirir → LLM yanlış/eksik cevap verir
 
 **Not:** secondpage.png ve PDF kaynaklı sorularda doğruluk çok daha yüksek — bu sorunun kaynağı spesifik olarak düşük çözünürlüklü PNG resimler.
+
+### BF-20: PDF içindeki resim sayfaları scanned olarak algılanmıyor
+
+- **Durum:** pymupdf4llm, resim içeren sayfalar için `**==> picture [WxH] intentionally omitted <==**` placeholder metni üretir. `_clean_text_length()` fonksiyonu Markdown karakterlerini (`#`, `*`, `-`, `|`) temizliyordu ama bu placeholder pattern'ı kalıyordu. Küçük boyutlu resimlerde (ör. `[472 x 447]`) temizlenmiş uzunluk 49 → threshold(50) altında, scanned doğru algılanıyordu. Ama büyük boyutlu resimlerde (ör. `[1920 x 1080]`) uzunluk 52'ye çıkıyor → threshold aşılıyor → sayfa scanned olarak algılanmıyor → OCR uygulanmıyor → boş veya anlamsız metin dönüyor.
+- **Ek bug:** Metadata key'i `page` olarak okunuyordu ama pymupdf4llm `page_number` döndürüyor. Fallback (`i + 1`) doğru çalıştığı için görünür hata yoktu ama potansiyel risk taşıyordu.
+- **Çözüm:** `_clean_text_length()` fonksiyonuna regex ile `==>...intentionally omitted...<==` pattern temizliği eklendi. Metadata key `page` → `page_number` düzeltildi.
+- **Dosya:** `src/document_processing/pdf_loader.py`
+
+### BF-21: Scanned PDF sayfalarında OCR kalitesi çok düşük (çift interpolasyon)
+
+- **Durum:** `extract_page_as_image()` sayfayı `get_pixmap(dpi=300)` ile render ediyordu. Bu, PDF'e gömülü düşük çözünürlüklü resimleri (ör. 775x735) sayfa boyutuna (2550x3300) interpolasyonla büyütüyordu. Ardından OCR preprocessing tekrar upscale ediyordu (3000px). Çift interpolasyon → bulanık resim → garbled OCR çıktısı.
+- **Belirtiler:** "OYUN"→"@YUN", "eşitlik"→"esltllk", "olacaktır"→"oLacakiıf", "uzatmalarla"→"uzadrnalarla". Render yöntemi 1052 karakter çıkarırken, doğrudan çıkarma 1837 karakter.
+- **Kök sebep:** `get_pixmap()` vektör içerik için idealdir, ama scanned PDF'lerdeki raster görseller çift interpolasyonla kalite kaybına uğrar.
+- **Çözüm:** `extract_page_as_image()` önce `page.get_images()` ile gömülü resimleri doğrudan çıkarmayı dener (orijinal piksel verisi korunur, tek upscale). Gömülü resim bulunamazsa eski render fallback devam eder.
+- **Sonuç:** OCR doğruluğu belirgin şekilde arttı — "10 dakikalık 4 çeyrekten", "2 dakikalık oyun arası" gibi ifadeler doğru okunuyor.
+- **Dosya:** `src/document_processing/pdf_loader.py`

@@ -42,6 +42,14 @@ Düşük çözünürlüklü bir PNG resimde (674x852px, Raspberry Pi Pico 2 W da
 
 Bu deneyimden öğrendiğim şey: problemi yanlış yerde arıyordum. Karakter tanıma kalitesini artırmaya çalışırken asıl sorun tanınan karakterlerin doğru sırada birleştirilmemesiydi.
 
+### Scanned PDF'lerde İki Katmanlı Sorun
+
+Doğrudan PNG yükleyince OCR düzgün çalışıyordu ama aynı içeriği PDF'e gömülü resim olarak verince hem scanned tespit hem de OCR kalitesi bozuldu.
+
+**Sorun 1 — Scanned sayfa tespiti:** pymupdf4llm resim içeren sayfalar için `**==> picture [WxH] intentionally omitted <==**` placeholder metni üretiyor. `_clean_text_length()` fonksiyonu Markdown karakterlerini (`#`, `*`, `-`, `|`) temizliyordu ama bu placeholder pattern'ı kalıyordu. Küçük boyutlu resimlerde (ör. `[472 x 447]` → 49 karakter) şans eseri threshold altında kalıyordu. Büyük boyutlu resimlerde (ör. `[1920 x 1080]` → 52 karakter) threshold'u aşıyor, sayfa scanned olarak algılanmıyor, OCR hiç uygulanmıyordu. Regex ile placeholder pattern'ını temizleyerek çözdüm.
+
+**Sorun 2 — Çift interpolasyon:** `extract_page_as_image()` sayfayı `get_pixmap(dpi=300)` ile render ediyordu. Bu, PDF'e gömülü 775x735 boyutundaki resmi sayfa boyutuna (2550x3300) interpolasyonla büyütüyordu. Ardından preprocessing tekrar 3000px'e upscale ediyordu — çift interpolasyon → bulanık → garbled OCR. Render yöntemi 1052 karakter çıkarırken, doğrudan çıkarma 1837 karakter çıkardı. Çözüm: önce `page.get_images()` ile gömülü resmi orijinal piksel verisinden çıkarmayı denemek, başarısızsa render'a fallback yapmak.
+
 ### Güvenlik: Regex vs LLM
 
 Input guard'ı regex tabanlı yaptım. İlk versiyonda Türkçe kelimeler false positive verdi — "yıkımından" kelimesindeki "-dan" eki "DAN" jailbreak pattern'i olarak algılandı, "zorunlu" kelimesindeki "run" code injection olarak algılandı. Word boundary (`\b`) ekleyerek çözdüm.
@@ -120,6 +128,14 @@ En zor sorun buydu. 674px genişliğindeki bir PNG resimde OCR "4 MB" yerine "MB
 
 Dört iterasyon boyunca preprocessing'i iyileştirmeye çalıştım — upscale, kontrast, binarization, beamsearch decoder. Sonunda kök sebebin preprocessing değil, EasyOCR'un döndürdüğü text block'ların sıralama ve birleştirme mantığı olduğunu fark ettim. Bounding box koordinatlarına göre sıralama ve aynı satırdaki blokları birleştirme ekleyince sorun büyük ölçüde çözüldü.
 
+### PDF Gömülü Resim → OCR Garbled Metin
+
+PNG yükleyince OCR iyi çalışıyordu. Aynı PDF'e resim gömerek test edince "OYUN"→"@YUN", "eşitlik"→"esltllk", "olacaktır"→"oLacakiıf" gibi ağır hatalar çıktı. Sorunun nereden kaynaklandığını bulmak zaman aldı.
+
+İlk düşünce: scanned tespit çalışmıyor. Kontrol ettim — küçük resimler için çalışıyordu ama büyük boyutlu resimler (1920x1080) placeholder text threshold'unu aşıyordu. Bunu fixledim. Ama OCR hâlâ kötüydü.
+
+İkinci sorun: `get_pixmap(dpi=300)` render ederken gömülü küçük resmi (775x735) büyük sayfa boyutuna interpolasyonla geriyor, ardından preprocessing tekrar büyütüyor — çift interpolasyon orijinal piksel verisini tahrip ediyor. `page.get_images()` ile doğrudan çıkarma yaklaşımına geçince 1052 → 1837 karakter iyileşme oldu ve okunamayan kelimeler düzeldi.
+
 ---
 
 ## Zamanımı Nasıl Harcadım
@@ -190,11 +206,225 @@ Answer relevancy düşük olmasının sebeplerini analiz ettim: system prompt ye
 
 ## Bug Fix Özeti
 
-Toplamda 19 bug fix yaptım. Kategorilere göre:
+Toplamda 21 bug fix yaptım. Kategorilere göre:
 
 - **Docker/Altyapı (7):** .env eksik, port uyumsuzlukları, build optimizasyonu, volume mount, EasyOCR model indirme
 - **Versiyon Uyumsuzlukları (4):** transformers, langchain, qdrant-client, RAGAS deprecation
 - **Güvenlik (2):** Regex false positive (Türkçe ekler), false negative (İngilizce pattern eksikliği)
 - **Bellek/Performans (3):** BGE-M3 çift yükleme, Ollama RAM yetersizliği, RAGAS timeout
-- **OCR/Metin İşleme (2):** Düşük çözünürlüklü resim OCR, text block sıralama
+- **OCR/Metin İşleme (4):** Düşük çözünürlüklü resim OCR (4 iterasyon), text block sıralama, pymupdf4llm placeholder scanned tespit hatası, scanned PDF çift interpolasyon
 - **Diğer (1):** Temp dosya adı sorunu
+
+---
+
+## Bilinen Sorunlar, Gözlemlenen Hatalar ve İyileştirme Önerileri
+
+Bu bölüm sistemin mevcut sınırlarını, test sırasında gözlemlenen ancak henüz çözülmemiş sorunları ve ileride yapılabilecek geliştirmeleri kapsamaktadır.
+
+---
+
+### 1. Türkçe Soru — İngilizce Belge Retrieval Sorunu
+
+**Ne oluyor?**
+
+Bazı Türkçe sorular İngilizce belgeye karşı doğru chunk'ı bulamıyor. Örneğin:
+
+- `"Flash bellek kapasitesi ne kadardır?"` → "Bu konuda yüklenen belgelerde bilgi bulunamadı."
+- `"Raspberry Pi Pico 2 W Flash bellek kapasitesi ne kadardır?"` → "2 MB QSPI flash" ✓
+- `"Kart üzerinde güç ve veri iletişimi sağlamak amacıyla hangi bağlantı noktası yer almaktadır?"` → "Bu konuda yüklenen belgelerde bilgi bulunamadı."
+
+**Neden oluyor?**
+
+İki ayrı sebep var:
+
+**Sebep A — Bağlam eksikliği:** "Flash bellek kapasitesi" gibi kısa ve genel sorgular yeterince özgün değil. Sistemde birden fazla belge varsa hangi cihaz veya konu için sorulduğu belli olmadığından embedding benzerlik skoru düşüyor, retrieval başarısız oluyor. Sorguya cihaz adı eklenince (Raspberry Pi Pico 2 W) benzerlik artıyor ve doğru chunk geliyor.
+
+**Sebep B — Dolaylı dil / parafraz:** Belgede "Micro-USB port" yazıyor, kullanıcı ise "güç ve veri iletişimi sağlayan bağlantı noktası" diyor. BGE-M3 cross-lingual retrieval yapabiliyor ama sorgu ne kadar dolaylı ve parafrazlıysa embedding benzerliği o kadar düşüyor. Teknik terimler doğrudan kullanılmadığında (port → bağlantı noktası, USB → data iletişim noktası) chunk eşleşemiyor.
+
+**Olası çözümler:**
+
+| Çözüm | Nasıl çalışır | Maliyet |
+|-------|---------------|---------|
+| **HyDE (Varsayımsal Cevap Embedding)** | LLM'e "Bu sorunun cevabı belgede nasıl geçer?" diye sorulur, üretilen İngilizce varsayımsal cevap embed edilir, o vektörle retrieval yapılır | Ekstra LLM çağrısı |
+| **Sorgu çevirisi** | Türkçe sorgu önce İngilizce'ye çevrilir, İngilizce haliyle retrieval yapılır | Çeviri modeli gerekir |
+| **Çoklu sorgu** | Bir sorudan 2-3 farklı yeniden yazım üretilir (farklı kelimelerle), hepsi embed edilip sonuçlar birleştirilerek kullanılır | Ekstra işlem süresi |
+| **Kullanıcıya uyarı** | Soru çok kısa veya belirsizse "Hangi belge için soruyorsunuz?" diye sorulur | UI değişikliği |
+
+En pratik kısa vadeli çözüm **sorgu çevirisi**, en doğru ve uzun vadeli çözüm **HyDE**.
+
+---
+
+### 2. Answer Relevancy Skorunun Düşüklüğü (0.60)
+
+**Ne oluyor?**
+
+RAGAS answer_relevancy skoru 0.60 — diğer metrikler 0.92+ olmasına rağmen bu skor belirgin biçimde düşük.
+
+**Neden oluyor?**
+
+Üç somut neden var:
+
+1. **LLM dolgu cümleler ekliyor.** "Bağlamda yer alan bilgiye göre...", "Yüklenen belgelere dayanarak..." gibi başlangıç cümleleri sorunun cevabıyla alakasız. RAGAS bu cümleleri soru-cevap benzerliğini hesaplarken noise olarak algılıyor.
+
+2. **Kaynak bilgisi (citation) skoru düşürüyor.** Cevabın sonuna eklenen `[Kaynak: dosya.pdf, Sayfa: 5]` ifadesi embedding benzerliğini matematiksel olarak azaltıyor — bu metin soruyla alakasız kelimeler içeriyor.
+
+3. **Basit sorulara gereksiz uzun cevap.** "Flash bellek kapasitesi?" gibi tek bilgi sorulan sorulara paragraf uzunluğunda cevap veriliyor.
+
+**Olası çözümler:**
+
+- System prompt'a "Cevaba giriş cümlesi ekleme, doğrudan cevapla başla" talimatı eklemek (kısmen yapıldı, tam çözülmedi).
+- Sorunun tipine göre (bilgi sorusu mu, açıklama sorusu mu) cevap uzunluğunu otomatik ayarlamak.
+- Kaynak bilgisini cevap metninden ayırarak ayrı bir alana koymak.
+
+---
+
+### 3. ADC Pin Sayısı Hatası (Chunk Sınırı Sorunu)
+
+**Ne oluyor?**
+
+"How many ADC capable pins?" sorusuna sistem sürekli "2" cevabını veriyor, doğru cevap 3.
+
+**Neden oluyor?**
+
+Farklı chunk'larda çelişkili bilgiler var. Bir chunk'ta "GPIO 26 and GPIO 28" yazıyor (2 pin ismi geçiyor), başka bir chunk'ta "three ADC capable pins" yazıyor ama reranker ilk chunk'ı daha yüksek skorla sıralıyor. LLM daha yüksek skorlu chunk'taki "2 pin" bilgisini kullanıyor.
+
+**Olası çözümler:**
+
+- Daha büyük chunk boyutu kullanmak — aynı konudaki bilgilerin tek chunk'a sığma ihtimalini artırır.
+- Semantik chunking (karakter sayısına değil, anlam bütünlüğüne göre bölme) uygulamak.
+- Birden fazla chunk getirip bunları LLM'e vermek ve "en kapsamlı cevabı bul" demek.
+
+---
+
+### 4. Düşük Çözünürlüklü Resimlerde OCR Sınırları (Hâlâ Mevcut)
+
+**Ne oluyor?**
+
+v4 iyileştirmesiyle büyük ilerleme sağlandı (%14 → %71) ama 674x852px gibi düşük çözünürlüklü resimlerde hâlâ bazı karakterler yanlış okunuyor:
+- İnce karakterler: "4", "l", "1", "I" karışabiliyor
+- Türkçe özel karakterler: "ş" ↔ "s", "ö" ↔ "o" hataları olabiliyor
+- Çok küçük font boyutları tamamen kaybolabiliyor
+
+**Olası çözümler:**
+
+- Tesseract veya PaddleOCR ile karşılaştırmalı test yapmak — bazı karakter tiplerinde daha iyi sonuç verebilir.
+- OCR sonrasında LLM ile metin düzeltme (post-processing) eklemek: "Bu garbled metni düzelt" promptuyla OCR çıktısı temizlenebilir.
+- Kullanıcıyı uyarmak: Düşük çözünürlüklü dosya yüklenince "OCR doğruluğu sınırlı olabilir" mesajı göstermek.
+
+---
+
+### 5. Scanned Sayfa Tespiti Kırılganlığı
+
+**Ne oluyor?**
+
+Şu anki yöntem: pymupdf4llm çıktısından placeholder metni temizleyip karakter sayısını saymak, 50'den az ise scanned kabul etmek. Bu yaklaşım çalışıyor ama kırılgan.
+
+**Neden sorunlu?**
+
+Eşik (50 karakter) tamamen keyfi seçildi. Bir sayfa hem biraz metin hem de büyük resim içeriyorsa (ör. resimli teknik tablo) yanlış sınıflandırılabilir. pymupdf4llm'in çıktı formatı değişirse placeholder regex bozulabilir.
+
+**Olası çözümler:**
+
+- Sayfa başına düşen resim alanı / toplam sayfa alanı oranına bakmak (örn. %80'den fazla resim alanıysa scanned say).
+- pymupdf'in `get_images()` ile resim sayısını ve metin miktarını birlikte değerlendirmek.
+- Her iki yöntemi de uygulayıp ikisi de "scanned" diyorsa OCR uygulamak (AND mantığı yerine OR).
+
+---
+
+### 6. Hardcoded Reranker Eşiği
+
+**Ne oluyor?**
+
+Reranker skoru 0.15'in altında kalan chunk'lar filtreleniyor. Bu eşik sabit kodlanmış.
+
+**Neden sorunlu?**
+
+- Bazı sorularda doğru chunk 0.12 skor alıp elenebiliyor (cross-lingual sorgularda bu risk daha yüksek).
+- Eşiği düşürünce noise artar, yükseltince doğru chunk'lar elenir.
+- Belge tipine göre ideal eşik değişiyor (teknik doküman vs. kural metni).
+
+**Olası çözümler:**
+
+- Eşiği config'e taşımak ve belge tipine göre farklı değer kullanmak.
+- Mutlak eşik yerine "en yüksek skoru alan chunk'ın %X'i kadar olan chunk'ları tut" gibi göreceli eşik kullanmak.
+- Eşiği kaldırıp her zaman top-K chunk getirmek, ama LLM'e "bu bilgiler yeterli değilse 'bulunamadı' de" demek.
+
+---
+
+### 7. Çoklu Belgede Çapraz Referans Yapılamıyor
+
+**Ne oluyor?**
+
+Sistem her soruda en iyi chunk'ları getiriyor ama bu chunk'lar farklı belgelerden gelebiliyor. Şu an bu normal — ama "Belge A'ya göre X, belge B'ye göre Y nasıl farklılaşıyor?" gibi karşılaştırmalı sorular desteklenmiyor.
+
+**Neden önemli?**
+
+Kullanıcıların çok doğal sorabileceği bir soru tipi: "Bu iki doküman arasında ne fark var?", "İkinci belgede birinci belgeyi destekleyen bir bilgi var mı?" gibi.
+
+**Olası çözüm:**
+
+Sorgu türünü (karşılaştırma mı, tek cevap mı) tespit edip, karşılaştırma sorgularında her belgeden ayrı ayrı chunk getirerek LLM'e "bu iki kaynağı karşılaştır" demek.
+
+---
+
+### 8. Aynı Belgenin Tekrar İndekslenmesi
+
+**Ne oluyor?**
+
+Şu an aynı dosya tekrar yüklenirse yeni chunk'lar oluşturulup koleksiyona ekleniyor. Eski chunk'lar silinmiyor. Bu hem vektör DB'yi şişiriyor hem de aynı bilginin iki kopyası retrieval'da karışıklığa yol açabiliyor.
+
+**Olası çözüm:**
+
+Dosya adı + hash kontrolü yaparak aynı dosya daha önce yüklendiyse "zaten mevcut" demek veya önce ilgili chunk'ları silip sonra yeniden indexlemek.
+
+---
+
+### 9. Tablo İçeren Belgelerde Chunk Bölünmesi
+
+**Ne oluyor?**
+
+pymupdf4llm tabloları Markdown formatında (`| col | col |`) çıkarıyor. Ama tablo büyükse chunk sınırları tablonun ortasından geçebiliyor. LLM yarım tablo alıyor ve yanlış veya eksik cevap verebiliyor.
+
+**Olası çözüm:**
+
+Chunk'lama sırasında Markdown tablo başlangıcı ve bitiş örüntüsünü tespit edip tabloyu bölmemek (tablo farkındalıklı chunking). LangChain'in `MarkdownHeaderTextSplitter`'ı bu konuda yardımcı olabilir.
+
+---
+
+### 10. Streaming Cevap Yok
+
+**Ne oluyor?**
+
+LLM cevabın tamamını üretip gönderiyor. Küçük belgeler ve kısa cevaplar için sorun değil ama uzun cevaplarda kullanıcı hiçbir şey görmeden 10-15 saniye bekliyor.
+
+**Olası çözüm:**
+
+Ollama streaming API'yi destekliyor (`stream=True`). Streamlit'te `st.write_stream()` ile token token göstermek mümkün. Kullanıcı deneyimini önemli ölçüde iyileştirir.
+
+---
+
+### 11. Önbellek (Cache) Yok
+
+**Ne oluyor?**
+
+Aynı soru aynı belgeler için tekrar sorulduğunda sistem baştan embedding üretip retrieval yapıp LLM'e gidiyor. Her şeyi sıfırdan yapıyor.
+
+**Olası çözüm:**
+
+Soru hash'i ve aktif koleksiyon adına göre basit bir in-memory cache (ör. Python dict veya Redis) tutmak. Aynı soru aynı belgeler için tekrar gelirse önbellekten cevap dönmek. LangChain'in `InMemoryCache` veya `SQLiteCache`'i doğrudan entegre edilebilir.
+
+---
+
+### 12. Belge Metadata'sı Filtrelemeye Kapalı
+
+**Ne oluyor?**
+
+Şu an koleksiyona yüklenen tüm belgeler her retrieval'da aday havuzuna giriyor. "Sadece şu PDF'e bak" veya "Sadece Türkçe belgelerde ara" gibi filtreleme yok.
+
+**Neden önemli?**
+
+Çok belgeli senaryolarda kullanıcı hangi belgeden cevap istediğini belirtmek isteyebilir. Örneğin "Periodontal metinde X nedir?" sorusunu teknik datasheete sormaması gerekiyor.
+
+**Olası çözüm:**
+
+Qdrant'ın `filter` özelliğini kullanmak. Belge yüklenirken metadata'ya dosya adı, dil, tarih gibi alanlar eklemek. Sorguda filtreleme parametresi desteklemek.
