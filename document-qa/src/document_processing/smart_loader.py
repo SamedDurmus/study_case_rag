@@ -1,7 +1,7 @@
 """Akıllı belge yükleyici modülü.
 
 Dosya uzantısına göre otomatik yönlendirme yapar:
-- PDF → PyMuPDF ile metin çıkarma, scanned sayfalar için OCR fallback
+- PDF → pymupdf4llm ile Markdown formatında metin çıkarma, scanned sayfalar için EasyOCR fallback
 - JPG/PNG → EasyOCR ile metin çıkarma
 - Diğer → Desteklenmeyen format hatası
 """
@@ -79,7 +79,7 @@ class SmartLoader:
         if not file_path.exists():
             raise FileNotFoundError(f"Dosya bulunamadi: {file_path}")
 
-        display_name = original_filename or display_name
+        display_name = original_filename or file_path.name
         extension = file_path.suffix.lower()
 
         if extension in SUPPORTED_PDF_EXTENSIONS:

@@ -205,3 +205,217 @@
 - **Hata:** Dosyalar düzeltiliyordu ama container eski kodu çalıştırmaya devam ediyordu
 - **Sebep:** Kaynak kod Dockerfile'da `COPY . .` ile image'a kopyalanıyordu, volume mount yoktu. Her değişiklikte `docker compose up --build` gerekiyordu
 - **Çözüm:** `docker-compose.yml`'e kaynak kod volume mount'ları eklendi: `./src:/app/src`, `./app.py:/app/app.py`, `./run_evaluation.py:/app/run_evaluation.py`. Artık kod değişiklikleri anında yansıyor, rebuild gerektirmiyor
+
+---
+
+## Gün 3: Araştırma, Mimari Analiz ve İyileştirmeler (~X saat)
+
+### Ne Yaptım
+- pymupdf4llm araştırması ve geçiş kararı verildi
+- `import fitz` → `import pymupdf` + `pymupdf4llm` olarak güncellendi
+- `pdf_loader.py` pymupdf4llm ile yeniden yazıldı (Markdown çıktı)
+- EasyOCR tercih gerekçesi dokümante edildi
+- Scanned page threshold analizi ve gelecek iyileştirme planı yazıldı
+- Design pattern ve OOP analizi yapıldı
+- `@dataclass` kullanım analizi yapıldı
+- RAGAS answer_relevancy düşüklüğü analiz edildi ve düzeltme planı hazırlandı
+- System prompt'lar iyileştirildi (chain-of-thought, format yönlendirme, güvenlik)
+- `smart_loader.py`'de `display_name` bug'ı düzeltildi (BF-18)
+- OCR image preprocessing eklendi: grayscale + upscale + kontrast + sharpen (BF-19)
+
+### Aldığım Kararlar
+
+- **Karar:** pymupdf4llm'e geçiş (düz PyMuPDF `get_text()` yerine)
+- **Alternatifler:** PyMuPDF `get_text()` (mevcut), PyMuPDF `get_text("dict")`, LlamaParse, Unstructured.io
+- **Gerekçe:** `get_text()` düz metin döndürüyor — başlık hiyerarşisi, tablo yapısı kayboluyor. pymupdf4llm Markdown formatında çıktı veriyor: başlıklar `#/##/###`, tablolar `| col | col |` formatında korunuyor. LLM'ler Markdown'ı düz metinden çok daha iyi anlıyor. `page_chunks=True` ile sayfa bazlı dict çıktısı veriyor — metadata zenginleşiyor. Multi-column desteği de var. RAG pipeline'ında context kalitesi doğrudan cevap kalitesini etkiliyor, bu yüzden yapısal metin çıkarma kritik. LlamaParse cloud-based ve ücretli, Unstructured.io overkill — pymupdf4llm lokal, hafif ve pymupdf üzerine kurulu.
+
+- **Karar:** pymupdf4llm'de `use_ocr=False` — OCR yönetimi bizde
+- **Alternatifler:** pymupdf4llm'in dahili Tesseract OCR'unu kullanmak
+- **Gerekçe:** pymupdf4llm'in OCR'u Tesseract tabanlı — sistem paketi gerektirir (`apt install tesseract-ocr`). Biz EasyOCR tercih ediyoruz: Python-native (pip install yeterli), Docker'da ekstra apt dependency yok, Türkçe desteği iyi. pymupdf4llm'den `use_ocr=False` ile Markdown metin çıkarması alıyoruz, scanned sayfa tespitini mevcut threshold mantığıyla yapıyoruz, OCR gerektiğinde EasyOCR devreye giriyor.
+
+- **Karar:** `import fitz` → `import pymupdf` olarak değiştirildi
+- **Alternatifler:** `import fitz` (eski konvansiyon), `import pymupdf as fitz`
+- **Gerekçe:** `fitz` import adı tarihi bir kalıntı — PyMuPDF'in dahili rendering engine'i "Fitz" (Fitzwilliam Müzesi'nden geliyor). Yeni sürümlerde `import pymupdf` destekleniyor ve kütüphanenin gerçek adıyla uyumlu. Kod okunabilirliği artıyor: `pymupdf.open()` ne yaptığını söylüyor, `fitz.open()` söylemiyor.
+
+### EasyOCR Tercih Gerekçesi (Detaylı)
+
+PDF'lerden metin çıkarma iki senaryoda OCR gerektirir: (1) taranmış (scanned) belgeler, (2) gömülü resim içeren sayfalar. OCR seçeneklerini araştırdım:
+
+| Kriter | EasyOCR | Tesseract | PaddleOCR | Surya |
+|--------|---------|-----------|-----------|-------|
+| Kurulum | `pip install` | `apt install` + `pip install` | `pip install` (ağır) | `pip install` (yeni) |
+| Türkçe | İyi | Orta | Orta (Çince ağırlıklı) | Gelişiyor |
+| Docker uyumu | Kolay (Python-native) | Sistem paketi gerekli | Ağır dependency | Henüz stabil değil |
+| GPU kullanımı | Opsiyonel | Yok | Var | Var |
+| Scanned PDF | İyi | İyi | İyi | Bilinmiyor |
+| Gömülü resim | İyi | Orta | İyi | Bilinmiyor |
+| Olgunluk | Olgun | Çok olgun | Olgun | Yeni |
+
+**Sonuç:** EasyOCR Python-native olması, kolay Docker entegrasyonu ve yeterli Türkçe desteği ile MVP için en uygun seçenek. Production'da PaddleOCR veya Surya değerlendirilebilir.
+
+**Not:** pymupdf4llm kendi içinde Hybrid OCR stratejisi sunuyor — metin olan bölgeleri atlar, sadece metin bulunamayan bölgelere OCR uygular. Bu yaklaşım OCR süresini ~%50 azaltıyor. Ancak Tesseract bağımlılığı nedeniyle biz EasyOCR'ı tercih ediyoruz.
+
+### Scanned Page Threshold Analizi (Gelecek İyileştirme Planı)
+
+**Mevcut mantık:** `pdf_loader.py`'de `SCANNED_PAGE_THRESHOLD = 50` — sayfa metnini çıkar, 50 karakterden azsa "scanned" kabul et, OCR'a yönlendir.
+
+**Analiz:**
+Mevcut yaklaşım basit ve çoğu durumda çalışıyor. Ancak edge case'lerde sorun yaratabilir:
+
+1. **False positive (gereksiz OCR):** Sadece başlık olan sayfalar (ör. "BAB 3: SONUÇLAR" = ~20 karakter) scanned olarak işaretleniyor. OCR çalışıyor ama aslında metin zaten doğru çıkmış. Zaman kaybı.
+
+2. **False positive (boş sayfalar):** Diyagram/grafik sayfaları az metin olabilir ama OCR da bir şey bulamaz. Boşa OCR süresi harcanıyor.
+
+3. **False negative (kaçırılan scanned):** Taranmış bir sayfada PyMuPDF 50+ garbled/bozuk karakter çıkarabilir. Threshold aşılır, sayfa "normal" sayılır, OCR atlanır. Bozuk metin pipeline'a girer.
+
+4. **Sabit threshold:** 50 karakter tüm sayfa boyutları için geçerli. A4 tam sayfa 3000+ karakter olabilir, tek paragraf sayfa 60 karakter olabilir.
+
+**İyileştirme planı (implement etmiyoruz, gelecek sprint):**
+- **Font bilgisi kontrolü:** `page.get_fonts()` boşsa → kesinlikle scanned
+- **Image/metin oranı:** `page.get_images()` ile sayfadaki image alanını hesapla, metin alanıyla kıyasla
+- **Karakter kalitesi:** Çıkarılan metnin unicode dağılımını kontrol et — garbled metin yüksek oranda özel karakter içerir
+- **Dinamik threshold:** Sayfa boyutuna orantılı threshold (toplam alan / metin uzunluğu)
+- **pymupdf4llm'in Markdown çıktısında kontrol:** Markdown formatting varsa (#, |, **) metin gerçek, yoksa muhtemelen scanned
+
+### Design Pattern Analizi
+
+Projede kullanılan design pattern'ler:
+
+| Pattern | Nerede | Açıklama |
+|---------|--------|----------|
+| **Strategy** | `SmartLoader._load_pdf()` / `_load_image()` | Dosya tipine göre farklı çıkarma stratejisi. `load()` metodu dosya uzantısını kontrol edip uygun stratejiye yönlendiriyor. Klasik Strategy pattern: aynı arayüz, farklı implementasyon. |
+| **Pipeline / Chain of Responsibility** | `RAGChain.query()` | Input Guard → Hybrid Search → RRF → Reranker → Context Sanitize → LLM → Output Guard. Her adım bağımsız, bir adım başarısız olursa zincir durur. Deterministik ve debug edilebilir. |
+| **Lazy Initialization** | `OCREngine._get_reader()`, `SmartLoader._get_ocr_engine()` | Ağır modeller (EasyOCR ~77MB, BGE-M3 ~2GB) ilk kullanımda yüklenir. Startup süresini azaltır, kullanılmayan modeller yüklenmez. |
+| **Guard / Filter** | `input_guard`, `document_guard`, `output_guard` | Üç katmanlı güvenlik filtresi. Her katman bağımsız, kendi sorumluluğu var. Input → saldırı tespiti, Document → indirect injection temizliği, Output → sızıntı/halüsinasyon kontrolü. |
+| **Value Object / DTO** | `@dataclass` yapıları | `DocumentChunk`, `LoadResult`, `PageContent`, `PDFResult`, `InputCheckResult`, `OutputCheckResult`, `RAGResponse`. Veri taşıyıcı — davranış yok, sadece yapı tanımı. Immutable data transfer. |
+| **Facade** | `RAGChain` | Tüm alt sistemleri (search, rerank, LLM, security) tek arayüzde birleştiriyor. Dışarıdan `chain.query(question)` — iç karmaşıklık gizli. |
+| **Composition over Inheritance** | `RAGChain.__init__()` | `RAGChain` içinde `HybridSearcher`, `Reranker`, `LLMClient` composition ile tutulur. Inheritance kullanılmamış — daha esnek, test edilebilir. |
+| **Module-level Functions** | `input_guard.check_input()`, `prompts.format_prompt()` | State tutmayan işlemler sınıfsız fonksiyon olarak yazılmış. Her yere sınıf zorlamamak doğru — Python'da idiomatic. |
+
+### @dataclass Kullanım Analizi
+
+Python 3.7+ ile gelen `@dataclass` decorator'ı, veri taşıyıcı sınıflar için boilerplate kodu otomatik üretir:
+
+**Ne üretir:** `__init__`, `__repr__`, `__eq__` (opsiyonel: `__hash__`, `__lt__`, `frozen=True` ile immutability)
+
+**Projede kullanım yerleri (7 adet):**
+1. `DocumentChunk` (smart_loader.py) — İşlenmiş belge parçası, chunking'e hazır
+2. `LoadResult` (smart_loader.py) — Belge yükleme sonucu (chunks + metadata)
+3. `PageContent` (pdf_loader.py) — Tek sayfa içeriği
+4. `PDFResult` (pdf_loader.py) — Tüm PDF içeriği
+5. `InputCheckResult` (input_guard.py) — Giriş güvenlik kontrolü sonucu
+6. `OutputCheckResult` (output_guard.py) — Çıktı güvenlik kontrolü sonucu
+7. `RAGResponse` (chain.py) — RAG pipeline cevap yapısı
+
+**Neden kullandık:**
+- Boilerplate azaltma: Her sınıf için `__init__` yazmak yerine field tanımla, decorator halleder
+- Type annotation zorunluluğu: `text: str` gibi — IDE ve linter desteği artıyor
+- `field(default_factory=list)` ile mutable default güvenliği (Python'ın klasik mutable default tuzağını önler)
+- `__repr__` otomatik: debug sırasında obje içeriği okunabilir
+- Alternatif: `NamedTuple` (immutable, inheritance yok), `TypedDict` (sadece dict), `Pydantic BaseModel` (validation dahil ama ağır). `@dataclass` hafif ve yeterli.
+
+### RAGAS Answer Relevancy Düşüklüğü Analizi
+
+**Sonuç:** `answer_relevancy: 0.5982` (diğer metrikler 0.92+)
+
+**RAGAS answer_relevancy nasıl çalışır:**
+Cevaptan geriye sorular üretir (reverse generation), bu soruları orijinal soruyla embedding benzerliği ile karşılaştırır. Cevap ne kadar "soruyla alakalı" bilgi içeriyorsa skor o kadar yüksek.
+
+**Muhtemel sebepler:**
+
+1. **System prompt yeterince yönlendirici değil:** Mevcut prompt "YALNIZCA bağlamdaki bilgileri kullan" diyor ama cevap formatı, odağı ve kısalığı hakkında yönlendirme yok. LLM geniş/dağınık cevaplar üretebilir.
+
+2. **Kaynak bilgisi noise yaratıyor:** Cevap sonundaki `[Kaynak: dosya_adı, Sayfa: X]` metni RAGAS'ın reverse generation'ında noise — cevabın içeriğiyle alakasız metin.
+
+3. **Context'te alakasız chunk'lar:** Reranker score threshold 0.15 — düşük skorlu ama geçen chunk'lar context'e girip LLM'in odağını dağıtıyor olabilir. Context bleeding.
+
+4. **LLM yorum/dolgu ekliyor:** "Bağlama göre...", "Belgeye bakıldığında..." gibi filler cümleler cevabın odağını dağıtıyor.
+
+5. **Türkçe embedding zayıflığı:** RAGAS'ın answer_relevancy hesaplamasında kullandığı embedding modeli Türkçe'de İngilizce kadar güçlü olmayabilir.
+
+**Düzeltme planı:**
+- [x] System prompt iyileştirme (chain-of-thought, format yönlendirme, kaynak formatı)
+- [ ] Reranker score threshold'u artırma testi (0.15 → 0.25)
+- [ ] RAGAS evaluation'da Türkçe-optimized embedding kullanımı araştırma
+- [ ] Cevap sonundaki kaynak bilgisinin RAGAS'a etkisini test etme
+
+### Öğrendiklerim
+- pymupdf4llm `page_chunks=True` ile sayfa bazlı Markdown dict döndürüyor — RAG için ideal
+- pymupdf4llm Hybrid OCR stratejisi sunuyor: metin olan bölgeleri atlar, sadece metin bulunamayan bölgelere OCR uygular (~%50 hız kazanımı)
+- `import fitz` tarihi bir kalıntı — `import pymupdf` yeni standart
+- Design pattern'ler bilinçli seçilmeli, her yere zorlanmamalı — Python'da module-level function yeterli olabilir
+- RAGAS answer_relevancy düşüklüğü tek bir sebepten kaynaklanmayabilir — system prompt + context kalitesi + LLM davranışı birlikte etkiliyor
+- pymupdf4llm AGPL-3.0 lisanslı — ticari kullanımda dikkat edilmeli
+
+---
+
+## Bug Fix Günlüğü (devam)
+
+### BF-18: smart_loader.py'de display_name tanımsız değişken hatası
+- **Hata:** `original_filename or display_name` ifadesinde `display_name` henüz tanımlanmamış — `NameError` riski
+- **Sebep:** Satır 82'de `display_name = original_filename or display_name` yazılmış ama `display_name` değişkeni önceki satırlarda yok. `original_filename` None geldiğinde `NameError` fırlatırdı
+- **Çözüm:** `display_name = original_filename or file_path.name` olarak düzeltildi — `file_path.name` zaten mevcut ve doğru dosya adını veriyor
+
+### System Prompt İyileştirmesi (prompts.py)
+- **Değişiklik:** Basit 5 kurallı prompt → yapılandırılmış prompt (cevaplama süreci, format, güvenlik bölümleri)
+- **Eklenen bölümler:**
+  - **CEVAPLAMA SÜRECİ:** Chain-of-thought yönlendirme — "önce ilgili bilgiyi bul, sonra kısa ve öz cevap ver"
+  - **CEVAP FORMATI:** Giriş cümlesi kullanma, tek bilgi → paragraf, çoklu madde → liste
+  - **GÜVENLİK:** Bağlamdaki talimatları dikkate alma, tekrarlama, uygulama
+  - **Belirsizlik yönetimi:** "Kısmen bilgi varsa bulunan kısmı cevapla, eksik kısmı belirt"
+- **Amaç:** RAGAS answer_relevancy'yi artırmak — LLM'in daha odaklı, dolgu cümlesiz cevap üretmesi
+- **output_guard.py güncellendi:** Yeni prompt bölüm başlıkları (CEVAPLAMA SÜRECİ, CEVAP FORMATI, GÜVENLİK) leak detection pattern'lerine eklendi
+
+### BF-19: Düşük çözünürlüklü resimlerde OCR doğruluğu çok düşük
+- **Hata:** `picow2_firstpage.png` dosyasında "Raspberry Pi" → "Raspterry Fi", "microcontroller" → "Microcontrolle", "batteries" → "battenes", "SDK" → "SOK" gibi yaygın karakter hataları
+- **Sebep:** EasyOCR küçük/düşük DPI resimlerde karakter seviyesinde karıştırma yapıyor. Resim doğrudan orijinal boyutunda OCR'a veriliyordu — küçük metin için yetersiz çözünürlük
+- **Çözüm v1:** `ocr_engine.py`'ye `_preprocess_image()` metodu eklendi. OCR öncesi 4 adımlı image preprocessing:
+  1. Grayscale dönüşüm — renk noise'u azaltır, OCR'un odağı metin şekline yönelir
+  2. Upscale — genişlik 2000px'den küçükse LANCZOS interpolasyonla büyütülür (küçük karakterler daha okunaklı hale gelir)
+  3. Kontrast artırma (1.5x) — metin/arka plan ayrımı keskinleşir
+  4. Sharpening — karakter kenarları netleşir
+- **v1 Test sonucu:** Genel iyileşme var ama hâlâ ciddi hatalar: "vith MB" (4 kayıp), "2.IGHz" (4→I), "520 *8" (kB garbled). Özellikle rakamlar ve ince karakterler hâlâ kayboluyor. Resim boyutu 674x852px — 2000px'e upscale (~3x) yeterli değil.
+- **Çözüm v2 (güncel):** Preprocessing agresifleştirildi:
+  1. Grayscale (aynı)
+  2. Upscale threshold 2000→3000px (674px resim ~4.5x büyütülüyor)
+  3. Kontrast 1.5x→2.0x (daha keskin metin/arka plan ayrımı)
+  4. Çift sharpen geçişi (ince karakterler için)
+  5. **Binarization eklendi** — ortalama piksel değeri threshold olarak kullanılıp metin siyah/arka plan beyaz yapılıyor. Bu, EasyOCR'un karakter tanıma doğruluğunu önemli ölçüde artırıyor çünkü gri tonlar kaldırılıp net iki renkli görüntü oluşuyor.
+- **v2 Test sonucu:** Bazı kelimeler düzeldi (Bluetooth 5.2, 802.11n artık doğru) ama "4" hâlâ kayıp ("with MB of fach memory"). Binarization ince karakterleri siliyor — global mean threshold, anti-aliased ince rakamları ("4", "W") beyaza çeviriyor.
+- **Çözüm v3:** Binarization kaldırıldı + beamsearch decoder eklendi. Ancak beamsearch test sonucunda daha kötü çıktı: satırlar kopuk ("with 4 M" — MB tamamlanmamış), cümleler karışık sırada, "Chapter 1. About Pico 2 W 3 key Key" gibi footer noise chunk'a girdi. Beamsearch greedy'den daha yavaş ve bu resimde daha kötü sonuç verdi.
+- **Kök sebep tespiti (v3 sonrası):** Asıl sorun preprocessing değil, `_results_to_text()` metoduydu. EasyOCR her text block'u bounding box ile döndürür ama sıralama garantisi yok. Eski kod sadece `"\n".join(lines)` yapıyordu — sıralama yok, aynı satırdaki bloklar birleştirilmiyor, noise filtrelenmiyordu.
+- **Çözüm v4 (güncel):** Beamsearch kaldırıldı (greedy'ye dönüldü) + text reconstruction eklendi:
+  1. Preprocessing aynı: grayscale + upscale 3000px + kontrast 2.0 + çift sharpen
+  2. **Greedy decoder** — beamsearch bu resimde satır tamamlama sorununa yol açtı
+  3. **Pozisyon bazlı sıralama** — bounding box Y koordinatına göre yukarıdan aşağı, X'e göre soldan sağa
+  4. **Aynı satır birleştirme** — Y koordinat farkı satır yüksekliğinin %50'sinden azsa aynı satır kabul edilip space ile birleştiriliyor. "with 4 M" + "B of flash memory" → "with 4 MB of flash memory"
+  5. **Noise filtreleme** — 3 karakterden kısa satırlar kaldırılıyor (footer, dekoratif metin)
+- **Etki:** Hem `extract_text_from_file()` hem `extract_text_from_bytes()` bu reconstruction'dan geçiyor. Mevcut çalışan dosyalar etkilenmez
+
+### PNG OCR Test Sonuçları (picow2_firstpage.png — 674x852px)
+
+Test edilen sorular ve sonuçları (`picow2_png_qa_pairs.json` referans alınarak):
+
+| Soru | Beklenen | Gerçek | Durum | Analiz |
+|------|----------|--------|-------|--------|
+| Microcontroller chip? | RP2350 | RP2350 | ✅ | - |
+| Wireless interfaces? | 2.4GHz, 802.11n, BT 5.2 | "bilgi bulunamadı" | ❌ | OCR "2.IGHz vireless interiaces" → arama eşleşemiyor |
+| Flash memory? | 4 MB | 2 MB | ❌ | OCR "vith MB" (4 kayıp), retriever Chapter 3'teki "2MB QSPI" getirdi |
+| Clock speed & core? | Dual Cortex-M33/RISC-V, 150MHz | Doğru | ✅ | - |
+| ADC capable pins? | 3 | 2 | ❌ | OCR sayı garbled, LLM yanlış çıkarım yaptı |
+| ADC reference voltage? | Own power supply | Doğru | ✅ | secondpage.png'den — OCR daha iyi |
+| GPIO pins for ADC? | 26-28 | 26 ve 28 (27 eksik) | ⚠️ | Kısmen doğru |
+| Reprogram flash? | SWD veya USB mode | Doğru | ✅ | secondpage.png'den |
+| BOOTSEL method? | Hold BOOTSEL during power-up | Doğru | ✅ | secondpage.png'den |
+| Power options? | USB, external, batteries | Kısmen doğru | ⚠️ | - |
+| Debug port? | 3-pin Arm SWD | SWD | ✅ | "3-pin" eksik |
+| SRAM capacity (TR)? | 520 kB | "bilgi bulunamadı" | ❌ | OCR "520 *8" → arama bulamıyor |
+| Flash memory (TR)? | 4 MB | 2 MB | ❌ | Aynı sorun — OCR'da 4 kayıp |
+| Bluetooth version (TR)? | Bluetooth 5.2 | "bilgi bulunamadı" | ❌ | OCR "Bluetocth 5 2" → arama zayıf |
+| Microcontroller (TR)? | RP2350 | Doğru | ✅ | - |
+
+**Sonuç:** 16 sorudan 8 doğru, 2 kısmen doğru, 6 yanlış/bulunamadı. Yanlışların tümü OCR kalitesinden kaynaklanıyor — rakamlar (4, kB) ve özel terimler (wireless, Bluetooth) garbled.
+
+**Kök sebep zinciri:** Düşük çözünürlüklü resim (674px) → OCR garbled metin → embedder garbled metni vektöre çevirir → araştırma doğru chunk'ı bulamaz VEYA yanlış chunk'ı getirir → LLM yanlış/eksik cevap verir
+
+**Not:** secondpage.png ve PDF kaynaklı sorularda doğruluk çok daha yüksek — bu sorunun kaynağı spesifik olarak düşük çözünürlüklü PNG resimler.

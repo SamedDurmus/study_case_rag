@@ -20,6 +20,9 @@ SYSTEM_PROMPT_LEAKS: list[str] = [
     r"(?i)YALNIZCA\s+aşağıdaki\s+bağlam",
     r"(?i)BAĞLAM:\s*\n",
     r"(?i)KULLANICI\s+SORUSU:\s*\n",
+    r"(?i)CEVAPLAMA\s+SÜRECİ",
+    r"(?i)CEVAP\s+FORMATI",
+    r"(?i)GÜVENLİK:\s*\n",
 ]
 
 # Halüsinasyon göstergeleri

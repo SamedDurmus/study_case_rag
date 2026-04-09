@@ -1,6 +1,7 @@
 streamlit>=1.30.0
 python-dotenv>=1.0.0
 PyMuPDF>=1.23.0
+pymupdf4llm>=0.0.17
 easyocr>=1.7.0
 langchain>=0.3.0
 langchain-community>=0.3.0

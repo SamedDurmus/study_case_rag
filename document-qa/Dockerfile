@@ -12,10 +12,12 @@ COPY requirements.txt .
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install -r requirements.txt
 
-COPY . .
 
 # EasyOCR modellerini build sirasinda indir
 RUN python -c "import easyocr; easyocr.Reader(['tr', 'en'], gpu=False, download_enabled=True)"
+
+COPY . .
+
 
 EXPOSE 5050
 
