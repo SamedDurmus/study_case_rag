@@ -28,7 +28,7 @@ docker compose up --build
 
 ### 3. Tarayıcıda açın
 ```
-http://localhost:8501
+http://localhost:5050
 ```
 
 İlk başlatmada BGE-M3 ve EasyOCR modelleri otomatik indirilir (~3GB).
