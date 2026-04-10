@@ -43,7 +43,7 @@ Model değiştirmek için `.env` dosyasında `OLLAMA_MODEL` değerini güncelley
 
 ## Desteklenen Dosya Formatları
 
-- **PDF** — Metin katmanlı PDF (PyMuPDF)
+- **PDF** — Metin katmanlı PDF (pymupdf4llm)
 - **Scanned PDF** — Metin katmanı olmayan, taranmış PDF (otomatik OCR)
 - **JPG / PNG** — Resim dosyaları (EasyOCR)
 
@@ -73,7 +73,7 @@ Model değiştirmek için `.env` dosyasında `OLLAMA_MODEL` değerini güncelley
 | `RETRIEVAL_TOP_K` | 20 | Arama sonucu sayısı |
 | `RERANK_TOP_N` | 4 | Reranker sonrası kullanılan parça sayısı |
 
-## Test Dosyaları
+## Test Dosyaları !!! ÖNEMLİ !!!
 
 `data/test_documents/` klasöründe sistemi hemen denemek için hazır belgeler ve soru-cevap çiftleri bırakıldı:
 
@@ -90,6 +90,6 @@ Her belge için hazır soru-cevap çiftleri de aynı klasörde `.json` ve `.md` 
 ## Bilinen Sınırlılıklar
 
 - Düşük çözünürlüklü resimlerde (674x852px gibi) OCR doğruluğu %100 garanti edilemez
-- Çok parafrazlı veya bağlamsız kısa sorgularda retrieval başarısı düşebilir
+- Çok dolaylı veya bağlamsız kısa sorgularda retrieval başarısı düşebilir
 - Çok büyük belgeler (100+ sayfa) işleme süresi artabilir
 - Aynı anda birden fazla kullanıcı desteklenmez
